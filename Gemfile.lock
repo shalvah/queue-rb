@@ -7,6 +7,7 @@ GEM
     rack-protection (2.2.2)
       rack
     ruby2_keywords (0.0.5)
+    sequel (5.61.0)
     sinatra (2.2.2)
       mustermann (~> 2.0)
       rack (~> 2.2)
@@ -18,7 +19,8 @@ PLATFORMS
   x64-mingw-ucrt
 
 DEPENDENCIES
-  sinatra
+  sequel (~> 5.61)
+  sinatra (~> 2.2)
 
 BUNDLED WITH
    2.3.7
