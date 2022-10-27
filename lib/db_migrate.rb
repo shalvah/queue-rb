@@ -1,5 +1,3 @@
-require_relative "./db"
-
 DB.drop_table? :jobs
 DB.create_table :jobs do
   String :id, primary_key: true, size: 12
