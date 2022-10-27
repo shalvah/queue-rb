@@ -1,7 +1,6 @@
 require "securerandom"
-require_relative "../lib/db"
 require_relative "./logger"
-require_relative "../jobs/do_some_stuff"
+require_relative './models/job'
 
 module Gator
   class Worker
@@ -19,7 +18,7 @@ module Gator
 
       loop do
         if (job = next_job)
-          execute_job(job)
+          error = execute_job(job)
           cleanup(job, error)
         else
           sleep polling_interval
@@ -47,15 +46,20 @@ module Gator
     end
 
     def execute_job(job)
-      Object.const_get(job.name).new.handle(job.args)
-      logger.info "Processed job #{job.id} with args #{job.args}"
+      Object.const_get(job.name).new.handle(*job.args)
+      logger.info "Processed job id=#{job.id} result=succeeded args=#{job.args}"
+      nil
+    rescue => e
+      logger.info "Processed job id=#{job.id} result=failed args=#{job.args}"
+      e
     end
 
     def cleanup(job, error = nil)
       job.reserved_by = nil
       job.attempts += 1
       job.last_executed_at = Time.now
-      job.state = "succeeded"
+      job.state = error ? "failed" : "succeeded"
+      job.error_details = error if error
       job.save
     end
   end
