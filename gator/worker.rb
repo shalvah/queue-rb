@@ -35,7 +35,7 @@ module Gator
 
     def check_for_jobs
       query = Models::Job.where(state: "waiting", reserved_by: nil)
-      query.where { (next_execution_at =~ nil) | (next_execution_at <= Time.now) }
+      query = query.where { (next_execution_at =~ nil) | (next_execution_at <= Time.now) }
       # logger.info query.sql
       query.first
     end

@@ -9,6 +9,10 @@ class App < Sinatra::Base
     count = Integer(params[:count] || 1)
     args = count.times.map { |i| ["Nellie #{i}", "Buster #{i}"] }
     Jobs::DoSomeStuff.dispatch_many(args)
+
+    delay = count % 15
+    Jobs::DoSomeStuff.dispatch("I was dispatched #{delay} minutes ago — at #{Time.now}", wait: delay * 60)
+
     "Queued #{count + 1} jobs"
   end
 end
