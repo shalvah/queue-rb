@@ -8,3 +8,5 @@ gem "sequel", "~> 5.61"
 gem "sqlite3", "~> 1.5"
 
 gem "zeitwerk", "~> 2.6"
+
+gem 'pry', '~> 0.13.1'

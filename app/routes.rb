@@ -3,17 +3,26 @@ require_relative "./boot"
 require 'sinatra/base'
 
 class App < Sinatra::Base
-  get "/queue/:count?" do
-    Jobs::DoSomeStuff.dispatch("Nellie", "Buster")
-
-    count = Integer(params[:count] || 1)
+  get "/bulk/:count" do
+    count = Integer(params[:count])
     args = count.times.map { |i| ["Nellie #{i}", "Buster #{i}"] }
     Jobs::DoSomeStuff.dispatch_many(args)
+    "Queued #{count} jobs"
+  end
 
-    delay = count % 15
-    Jobs::DoSomeStuff.dispatch("I was dispatched #{delay} minutes ago — at #{Time.now}", wait: delay * 60)
+  get "/delay/:delay?" do
+    delay = Integer(params[:delay] || 3) * 60
+    Jobs::DoSomeStuff.dispatch("I was dispatched #{delay} minutes ago — at #{Time.now}", wait: delay)
 
-    "Queued #{count + 1} jobs"
+    "Queued 1 job"
+  end
+
+  get "/queue/:queue?" do
+    3.times { Jobs::RegularAssJob.dispatch("arg") }
+    Jobs::CriticalJob.dispatch
+    Jobs::RegularAssJob.dispatch_many([["arg"]] * 4, queue: :critical)
+
+    "Queued 1 job"
   end
 end
 
