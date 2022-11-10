@@ -32,7 +32,7 @@ module Gator
       'debug' => :cyan,
       'error' => :red,
       'info' => :green,
-      'warning' => :yellow,
+      'warn' => :yellow,
     }
 
     # Text color

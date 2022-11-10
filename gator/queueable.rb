@@ -46,8 +46,12 @@ module Gator
       @queue = queue
     end
 
+    def self.retry_with(interval: nil, max_retries: 10, queue: nil, &block)
+      @retry_strategy = { interval:, max_retries:, queue:, block: }
+    end
+
     class << self
-      attr_reader :queue
+      attr_reader :queue, :retry_strategy
     end
   end
 end

@@ -26,8 +26,9 @@ module Gator
 
       loop do
         if (job = next_job)
-          error = execute_job(job)
-          cleanup(job, error)
+          job_class = Object.const_get(job.name)
+          error = execute_job(job, job_class)
+          cleanup(job, job_class, error)
         else
           sleep polling_interval
         end
@@ -44,8 +45,10 @@ module Gator
     end
 
     def check_for_jobs
-      query = Models::Job.where(state: "waiting", reserved_by: nil)
-      query = query.where { (next_execution_at =~ nil) | (next_execution_at <= Time.now) }
+      query = Models::Job.where(state: "waiting").
+        where { (next_execution_at =~ nil) | (next_execution_at <= Time.now) }.
+        or(state: "failed", next_execution_at: (..Time.now)).
+        where(reserved_by: nil)
 
       if queues.empty?
         logger.info "Checking all queues"
@@ -63,7 +66,7 @@ module Gator
       return @queues_filter if @queues_filter
 
       # Weighted random sampling from Efraimidis and Spirakis, thanks to https://gist.github.com/O-I/3e0654509dd8057b539a
-      queue_to_check, _priority = queues.max_by(1) { |(_name, priority)| rand ** (1.0/priority) }.first
+      queue_to_check, _priority = queues.max_by(1) { |(_name, priority)| rand ** (1.0 / priority) }.first
       [queue_to_check]
     end
 
@@ -72,8 +75,8 @@ module Gator
       updated_count == 1 ? job : false
     end
 
-    def execute_job(job)
-      Object.const_get(job.name).new.handle(*job.args)
+    def execute_job(job, job_class)
+      job_class.new.handle(*job.args)
       logger.info "Processed job id=#{job.id} result=succeeded queue=#{job.queue}"
       nil
     rescue => e
@@ -81,13 +84,44 @@ module Gator
       e
     end
 
-    def cleanup(job, error = nil)
+    def cleanup(job, job_class, error = nil)
       job.reserved_by = nil
       job.attempts += 1
       job.last_executed_at = Time.now
-      job.state = error ? "failed" : "succeeded"
-      job.error_details = error if error
+      if error
+        job.state = "failed"
+        job.error_details = error
+        set_retry_details(job_class.retry_strategy, job, error) if job_class.retry_strategy
+      else
+        job.state = "succeeded"
+      end
+
       job.save
+    end
+
+    def set_retry_details(retry_strategy, job, error)
+      retry_strategy => { interval:, queue:, max_retries:, block: }
+
+      retry_count = job.attempts - 1
+      if max_retries && retry_count >= max_retries
+        job.state = "dead"
+        return
+      end
+
+      if block
+        decision = block.call(error, retry_count)
+        if decision == false
+          job.state = "dead"
+          return
+        end
+
+        interval = decision
+      end
+
+      interval = (30 + (retry_count) ** 5) if interval == :exponential
+      job.next_execution_at = job.last_executed_at + interval
+
+      job.queue = queue if queue
     end
   end
 end
