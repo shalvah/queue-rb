@@ -4,6 +4,8 @@ require_relative "./models/job"
 
 module Gator
   class Queueable
+    include Configuration
+
     def self.dispatch(*args, wait: nil, at: nil, queue: nil)
       job = Gator::Models::Job.new(
         name: self.name, args:,
@@ -37,21 +39,7 @@ module Gator
     attr_reader :logger
 
     def initialize
-      super
       @logger = Gator::Logger.new
-    end
-
-    protected
-    def self.queue_on(queue)
-      @queue = queue
-    end
-
-    def self.retry_with(interval: nil, max_retries: 10, queue: nil, &block)
-      @retry_strategy = { interval:, max_retries:, queue:, block: }
-    end
-
-    class << self
-      attr_reader :queue, :retry_strategy
     end
   end
 end
