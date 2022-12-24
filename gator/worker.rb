@@ -76,11 +76,11 @@ module Gator
     end
 
     def execute_job(job, job_class)
-      middleware = (job_class.middleware || []).dup
-      instance = job_class.new
+      middleware = job_class.middleware || []
+      job_instance = job_class.new
       executor = proc do
         next_middleware = middleware.shift
-        next_middleware ? next_middleware.call(instance, &executor) : instance.handle(*job.args)
+        next_middleware ? next_middleware.call(job_instance, &executor) : job_instance.handle(*job.args)
       end
       executor.call
 

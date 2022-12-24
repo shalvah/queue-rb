@@ -1,6 +1,6 @@
 module Jobs
   module Middleware
-    class MeasuresExecutionTime
+    class MeasureExecutionTime
       def self.call(job)
         start_time = Process::clock_gettime(Process::CLOCK_MONOTONIC)
         yield

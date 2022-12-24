@@ -2,8 +2,8 @@ class Jobs::DoSomeStuff < Gator::Queueable
   queue_on :high
 
   with_middleware [
-    Jobs::Middleware::SaysGoodbye,
-    Jobs::Middleware::MeasuresExecutionTime
+    Jobs::Middleware::SayGoodbye,
+    Jobs::Middleware::MeasureExecutionTime
   ]
 
   def handle(arg1, arg2 = nil)

@@ -1,6 +1,6 @@
 module Jobs
   module Middleware
-    class SaysGoodbye
+    class SayGoodbye
       def self.call(job)
         yield
         job.logger.info("Goodbye from job #{job.class.name}")
