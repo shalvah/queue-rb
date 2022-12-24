@@ -45,7 +45,7 @@ module Gator
     end
 
     def check_for_jobs
-      query = Models::Job.where(state: "waiting").
+      query = Models::Job.where(state: "ready").
         where { (next_execution_at =~ nil) | (next_execution_at <= Time.now) }.
         or(state: "failed", next_execution_at: (..Time.now)).
         where(reserved_by: nil)
@@ -77,9 +77,7 @@ module Gator
 
     def execute_job(job, job_class)
       middleware = job_class.middleware || []
-      job_instance = job_class.new
-      job_instance.set_instance_variable(:@job_id, job.id)
-      job_instance.set_instance_variable(:@retry_count, job.attempts)
+      job_instance = job_class.new(job_id: job.id, retry_count: job.attempts)
       executor = proc do
         next_middleware = middleware.shift
         next_middleware ? next_middleware.call(job_instance, &executor) : job_instance.handle(*job.args)

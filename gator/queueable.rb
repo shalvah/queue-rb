@@ -38,8 +38,10 @@ module Gator
 
     attr_reader :logger, :retry_count, :job_id
 
-    def initialize
+    def initialize(job_id:, retry_count: 0)
       @logger = Gator::Logger.new
+      @job_id = job_id
+      @retry_count = retry_count
     end
   end
 end

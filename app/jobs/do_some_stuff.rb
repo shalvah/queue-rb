@@ -7,7 +7,7 @@ class Jobs::DoSomeStuff < Gator::Queueable
   ]
 
   on_error do |job|
-    job.logger.error "Oh no, there's a problem!"
+    job.logger.error "Oh no, there's a problem with job #{job.job_id}!"
   end
 
   def handle(arg1, arg2 = nil)

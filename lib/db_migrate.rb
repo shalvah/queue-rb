@@ -8,7 +8,7 @@ DB.create_table :jobs do
   DateTime :next_execution_at, null: true, index: true # for scheduled jobs and retries
   DateTime :last_executed_at, null: true
   Integer :attempts, default: 0
-  String :state, default: "waiting", index: true
+  String :state, default: "ready", index: true
   String :error_details, null: true
   String :reserved_by, null: true
 end
