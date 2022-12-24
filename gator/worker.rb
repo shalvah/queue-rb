@@ -78,6 +78,8 @@ module Gator
     def execute_job(job, job_class)
       middleware = job_class.middleware || []
       job_instance = job_class.new
+      job_instance.set_instance_variable(:@job_id, job.id)
+      job_instance.set_instance_variable(:@retry_count, job.attempts)
       executor = proc do
         next_middleware = middleware.shift
         next_middleware ? next_middleware.call(job_instance, &executor) : job_instance.handle(*job.args)
@@ -88,7 +90,16 @@ module Gator
       nil
     rescue => e
       logger.info "Processed job id=#{job.id} result=failed queue=#{job.queue}"
+      run_job_error_handler(job_instance, e) if e
       e
+    end
+
+    def run_job_error_handler(job_instance, error)
+      return unless job_instance.class.error_handler
+
+      job_instance.class.error_handler.call(job_instance, error)
+    rescue => e
+      logger.warn "Job error handler threw an error: #{e.message}"
     end
 
     def cleanup(job, job_class, error = nil)

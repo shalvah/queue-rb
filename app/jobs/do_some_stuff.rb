@@ -6,9 +6,13 @@ class Jobs::DoSomeStuff < Gator::Queueable
     Jobs::Middleware::MeasureExecutionTime
   ]
 
+  on_error do |job|
+    job.logger.error "Oh no, there's a problem!"
+  end
+
   def handle(arg1, arg2 = nil)
     sleep 1.5
-    raise "Oh no, a problem" if rand > 0.8
+    raise "Big ugly error" if rand > 0.8
     logger.info "HIIII #{arg1} and #{arg2}"
   end
 end
