@@ -36,12 +36,13 @@ module Gator
       Gator::Logger.new.info "Enqueued #{args.size} #{self.name} jobs queue=#{queue}"
     end
 
-    attr_reader :logger, :retry_count, :job_id
+    attr_reader :logger, :retry_count, :job_id, :chain_class
 
-    def initialize(job_id:, retry_count: 0)
+    def initialize(job_id:, retry_count: 0, chain_class: nil)
       @logger = Gator::Logger.new
       @job_id = job_id
       @retry_count = retry_count
+      @chain_class = chain_class
     end
   end
 end

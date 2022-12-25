@@ -77,7 +77,7 @@ module Gator
 
     def execute_job(job, job_class)
       middleware = job_class.middleware || []
-      job_instance = job_class.new(job_id: job.id, retry_count: job.attempts)
+      job_instance = job_class.new(job_id: job.id, retry_count: job.attempts, chain_class: job.chain_class)
       executor = proc do
         next_middleware = middleware.shift
         next_middleware ? next_middleware.call(job_instance, &executor) : job_instance.handle(*job.args)
@@ -93,9 +93,11 @@ module Gator
     end
 
     def run_job_error_handler(job_instance, error)
-      return unless job_instance.class.error_handler
+      error_handler = Object.const_get(job_instance.chain_class).error_handler if job_instance.chain_class
+      error_handler ||= job_instance.class.error_handler
+      return unless error_handler
 
-      job_instance.class.error_handler.call(job_instance, error)
+      error_handler.call(job_instance, error)
     rescue => e
       logger.warn "Job error handler threw an error: #{e.message}"
     end
@@ -112,7 +114,12 @@ module Gator
         job.state = "succeeded"
       end
 
-      job.save
+      DB.transaction do
+        job.save
+        if job.state == "succeeded" && job.next_job_id
+          Models::Job.where(id: job.next_job_id).update(state: "ready")
+        end
+      end
     end
 
     def set_retry_details(retry_strategy, job, error)

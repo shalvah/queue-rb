@@ -6,7 +6,6 @@ module Gator
       end
 
       module ClassMethods
-
         attr_reader :queue, :retry_strategy, :middleware, :error_handler
 
         protected
