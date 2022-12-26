@@ -11,6 +11,11 @@ class Jobs::DoSomeStuff < Gator::Queueable
   end
 
   def handle(arg1, arg2 = nil)
+    p "First sleep"
+    sleep 1.5
+    p "Second sleep"
+    sleep 1.5
+    p "Third sleep"
     sleep 1.5
     raise "Big ugly error" if rand > 0.8
     logger.info "HIIII #{arg1} and #{arg2}"

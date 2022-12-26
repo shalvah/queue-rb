@@ -16,6 +16,7 @@ module Gator
 
       all_queues_have_same_priority = @queues.map { _1[1] }.uniq.size == 1
       @queues_filter = @queues.map(&:first) if all_queues_have_same_priority
+      @job_thread = nil
     end
 
     def run
@@ -24,15 +25,24 @@ module Gator
         logger.info("Watching all queues") :
         logger.info("Watching queues: #{queues.map { |q, p| "#{q} (priority=#{p})" }.join(', ')}")
 
+      setup_signal_handlers
       loop do
+        break if @should_exit
+
         if (job = next_job)
-          job_class = Object.const_get(job.name)
-          error = execute_job(job, job_class)
-          cleanup(job, job_class, error)
+          @job_thread = Thread.new do
+            job_class = Object.const_get(job.name)
+            error = execute_job(job, job_class)
+            cleanup(job, job_class, error)
+          end
+          @job_thread.join
+          @job_thread = nil
         else
           sleep polling_interval
         end
       end
+
+      puts "Exiting."
     end
 
     protected
@@ -76,6 +86,7 @@ module Gator
     end
 
     def execute_job(job, job_class)
+      logger.info "Processing job id=#{job.id} class=#{job_class} queue=#{job.queue}"
       middleware = job_class.middleware || []
       job_instance = job_class.new(job_id: job.id, retry_count: job.attempts, chain_class: job.chain_class)
       executor = proc do
@@ -84,7 +95,7 @@ module Gator
       end
       executor.call
 
-      logger.info "Processed job id=#{job.id} result=succeeded queue=#{job.queue}"
+      logger.info "Processed job id=#{job.id} result=succeeded class=#{job_class} queue=#{job.queue}"
       nil
     rescue => e
       logger.info "Processed job id=#{job.id} result=failed queue=#{job.queue}"
@@ -145,6 +156,19 @@ module Gator
       job.next_execution_at = job.last_executed_at + interval
 
       job.queue = queue if queue
+    end
+
+    def setup_signal_handlers
+      Signal.trap("SIGINT") do
+        if @should_exit
+          puts "Force exiting"
+          Thread.kill(@job_thread) if @job_thread
+          exit
+        end
+
+        puts "Received SIGINT; waiting for any executing jobs to finish before exiting..."
+        @should_exit = true
+      end
     end
   end
 end
