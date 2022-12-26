@@ -7,8 +7,8 @@ module Gator
     attr_reader :polling_interval, :logger, :worker_id, :queues
 
     def initialize(queues: [])
-      @polling_interval = 5
-      @logger = Gator::Logger.new(level: ::Logger::INFO)
+      @polling_interval = 4
+      @logger = Gator::Logger.new(level: ::Logger::DEBUG)
       @worker_id = "wrk_" + SecureRandom.hex(8)
       @queues = (queues || []).map do |q|
         q.kind_of?(Array) ? q : [q, 1]
@@ -16,7 +16,7 @@ module Gator
 
       all_queues_have_same_priority = @queues.map { _1[1] }.uniq.size == 1
       @queues_filter = @queues.map(&:first) if all_queues_have_same_priority
-      @job_thread = nil
+      @max_concurrency = 5
     end
 
     def run
@@ -25,16 +25,19 @@ module Gator
         logger.info("Watching all queues") :
         logger.info("Watching queues: #{queues.map { |q, p| "#{q} (priority=#{p})" }.join(', ')}")
 
+      @work_queue = Thread::Queue.new
+      setup_thread_pool
       setup_signal_handlers
-      loop do
-        break if @should_exit
 
-        if (job = next_job)
-          @job_thread = Thread.new do
-            Executor.execute(job)
-          end
-          @job_thread.join
-          @job_thread = nil
+      loop do
+        if @should_exit
+          @work_queue.close
+          child_threads.each(&:join)
+          break
+        end
+
+        if (@work_queue.size < @max_concurrency) && (job = next_job)
+          @work_queue.push(job)
         else
           sleep polling_interval
         end
@@ -66,7 +69,6 @@ module Gator
         logger.info "Checking queues #{queues_to_check}"
       end
 
-      logger.debug query.sql
       query.first
     end
 
@@ -87,13 +89,30 @@ module Gator
       Signal.trap("SIGINT") do
         if @should_exit
           puts "Force exiting"
-          Thread.kill(@job_thread) if @job_thread
+          @work_queue.close
+          child_threads.each(&:kill)
           exit
         end
 
         puts "Received SIGINT; waiting for any executing jobs to finish before exiting..."
         @should_exit = true
       end
+    end
+
+    def setup_thread_pool
+      @max_concurrency.times do
+        Thread.new do
+          while (job = @work_queue.shift)
+            Executor.execute(job)
+          end
+        end
+      end
+
+      logger.debug "Started #{@max_concurrency} executor threads"
+    end
+
+    def child_threads
+      Thread.list.reject { |t| t == Thread.main }
     end
   end
 end

@@ -1,5 +1,6 @@
 class Jobs::RegularAssJob < Gator::Queueable
   def handle(*)
-    sleep(rand(3))
+    DB[:jobs].where(next_job_id: 'ready').count
+    sleep(rand(5))
   end
 end
