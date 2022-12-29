@@ -1,4 +1,3 @@
-
 require_relative "./logger"
 require_relative "./models/job"
 
@@ -15,29 +14,29 @@ module Gator
     end
 
     def self.dispatch(*args, wait: nil, at: nil, queue: nil)
-      next_execution_at = wait ? (Time.now + wait) : (at ? at : nil)
-      chain_queue = queue ? queue : self.queue
+      at ||= wait ? (Time.now + wait) : nil
+      chain_queue = queue || self.queue
 
-      jobs = []
-      logs = []
-      component_jobs.reverse_each.with_index do |job_class, index|
-        is_first_in_chain = (index == component_jobs.size - 1)
-        queue = (chain_queue || job_class.queue || 'default').to_s
-        jobs << {
-          id: Gator::Models::Job.generate_job_id,
-          name: job_class.name,
-          args: args.to_json,
-          next_execution_at: is_first_in_chain ? next_execution_at : nil,
-          state: is_first_in_chain ? "ready" : "waiting",
-          queue:,
-          next_job_id: (jobs.last[:id] rescue nil),
+      chain_id = SecureRandom.hex(12)
+      jobs = component_jobs.map do |job_class|
+        {
+          'id' => Gator::Models::Job.generate_job_id,
+          'name' => job_class.name,
+          'args' => args,
+          'queue' => chain_queue || job_class.queue || 'default',
+          'chain_class' => self.name,
         }
-        logs << ["Enqueued job #{job_class.name} in chain #{self.name} queue=#{queue}"]
       end
 
-      Gator::Models::Job.multi_insert(jobs.reverse!)
+      $redis.multi do |transaction|
+        Gator::Models::Job.save(
+          jobs.shift.merge({ 'chain_id' => chain_id }), at:,
+          connection: transaction
+        )
+        transaction.rpush "chains-#{chain_id}", jobs.map(&:to_json)
+      end
 
-      Gator::Logger.new.info logs.join("\n")
+      Gator::Logger.new.info "Enqueued chain #{self.name} queue=#{queue}"
     end
   end
 end

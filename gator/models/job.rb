@@ -1,16 +1,20 @@
 require 'json'
 
-require_relative "../../lib/db"
+require_relative "../../lib/redis"
 
 module Gator
   module Models
-    class Job < Sequel::Model
-      def before_create
-        self.id = Job.generate_job_id
-        self.args = self[:args].to_json
-      end
+    class Job
+      def self.save(details, at: nil, connection: nil)
+        connection ||= $redis
+        if at
+          connection.zadd "scheduled", at.to_i, details.to_json
+        else
+          connection.rpush "queue-#{details['queue']}", details.except('queue').to_json
+        end
 
-      def args = JSON.parse(self[:args])
+        connection.sadd "known-queues", details['queue']
+      end
 
       def self.generate_job_id
         "job_" + SecureRandom.hex(12)

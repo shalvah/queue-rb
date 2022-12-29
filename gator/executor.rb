@@ -20,6 +20,7 @@ module Gator
     end
 
     protected
+
     def execute_job(job, job_class)
       logger.info "Processing job id=#{job.id} class=#{job_class} queue=#{job.queue}"
       middleware = job_class.middleware || []
@@ -49,21 +50,24 @@ module Gator
     end
 
     def cleanup(job, job_class, error = nil)
-      job.reserved_by = nil
       job.attempts += 1
       job.last_executed_at = Time.now
       if error
         job.state = "failed"
         job.error_details = error
-        set_retry_details(job_class.retry_strategy, job, error) if job_class.retry_strategy
+        job_class.retry_strategy ? set_retry_details(job_class.retry_strategy, job, error) : (job.state = "dead")
       else
         job.state = "succeeded"
       end
 
-      DB.transaction do
-        job.save
-        if job.state == "succeeded" && job.next_job_id
-          Models::Job.where(id: job.next_job_id).update(state: "ready")
+      if job.state == "failed"
+        $redis.zadd "retry", job.next_execution_at.to_i, job.to_h.to_json
+      elsif job.state == "dead"
+        $redis.rpush "dead", job.to_h.to_json
+      elsif job.chain_id
+        next_job = $redis.lpop "chains-#{job.chain_id}"
+        if next_job
+          Gator::Models::Job.save(JSON(next_job).merge({ 'chain_id' => job.chain_id }))
         end
       end
     end
@@ -91,6 +95,29 @@ module Gator
       job.next_execution_at = job.last_executed_at + interval
 
       job.queue = queue if queue
+    end
+  end
+end
+
+def cleanup(job, job_class, error = nil)
+  job.attempts += 1
+  job.last_executed_at = Time.now
+  if error
+    job.state = "failed"
+    job.error_details = error
+    job_class.retry_strategy ? set_retry_details(job_class.retry_strategy, job, error) : (job.state = "dead")
+  else
+    job.state = "succeeded"
+  end
+
+  if job.state == "failed"
+    $redis.zadd "retry", job.next_execution_at.to_i, job.to_h.to_json
+  elsif job.state == "dead"
+    $redis.rpush "dead", job.to_h.to_json
+  elsif job.chain_id
+    next_job = $redis.lpop "chains-#{job.chain_id}"
+    if next_job
+      Gator::Models::Job.save(JSON(next_job).merge({ 'chain_id' => job.chain_id }))
     end
   end
 end

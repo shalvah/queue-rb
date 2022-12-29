@@ -4,18 +4,16 @@ require_relative './models/job'
 
 module Gator
   class Worker
-    attr_reader :polling_interval, :logger, :worker_id, :queues
+    attr_reader :logger, :worker_id, :queues
 
     def initialize(queues: [])
-      @polling_interval = 4
       @logger = Gator::Logger.new(level: ::Logger::DEBUG)
       @worker_id = "wrk_" + SecureRandom.hex(8)
       @queues = (queues || []).map do |q|
         q.kind_of?(Array) ? q : [q, 1]
       end
 
-      all_queues_have_same_priority = @queues.map { _1[1] }.uniq.size == 1
-      @queues_filter = @queues.map(&:first) if all_queues_have_same_priority
+      @all_queues_have_same_priority = @queues.map { _1[1] }.uniq.size == 1
       @max_concurrency = 5
     end
 
@@ -36,10 +34,10 @@ module Gator
           break
         end
 
+        enqueue_any_ripe_jobs
+
         if (@work_queue.size < @max_concurrency) && (job = next_job)
           @work_queue.push(job)
-        else
-          sleep polling_interval
         end
       end
 
@@ -49,40 +47,58 @@ module Gator
     protected
 
     def next_job
-      job = check_for_jobs
-      return nil unless job
+      queue, job_string = check_for_jobs
+      return nil if queue == nil
 
-      reserve_job(job) || nil
+      defaults = {
+        'attempts' => 0,
+        'state' => 'ready',
+        'queue' => queue.sub("queue-", ''),
+        'chain_class' => nil,
+        'chain_id' => nil,
+        'error_details' => nil,
+        'last_executed_at' => nil,
+        'next_execution_at' => nil,
+      }
+      job_hash = defaults.merge(JSON(job_string))
+      OpenStruct.new(**job_hash)
     end
 
     def check_for_jobs
-      query = Models::Job.where(state: "ready").
-        where { (next_execution_at =~ nil) | (next_execution_at <= Time.now) }.
-        or(state: "failed", next_execution_at: (..Time.now)).
-        where(reserved_by: nil)
+      queues_to_check = queues_filter
+      logger.info "Checking queues #{queues_to_check}"
 
-      if queues.empty?
-        logger.info "Checking all queues"
-      else
-        queues_to_check = queues_filter
-        query = query.where(queue: queues_to_check)
-        logger.info "Checking queues #{queues_to_check}"
-      end
-
-      query.first
+      $redis.blpop queues_to_check.map { "queue-#{_1}"}, timeout: 2
     end
 
     def queues_filter
-      return @queues_filter if @queues_filter
+      return @queues.map(&:first).shuffle if @all_queues_have_same_priority
 
-      # Weighted random sampling from Efraimidis and Spirakis, thanks to https://gist.github.com/O-I/3e0654509dd8057b539a
-      queue_to_check, _priority = queues.max_by(1) { |(_name, priority)| rand ** (1.0 / priority) }.first
-      [queue_to_check]
+      if @queues.empty?
+        all_queues = $redis.smembers "known-queues"
+        return all_queues.empty? ? ['default'] : all_queues.shuffle
+      end
+
+      # Adapted from weighted random sampling from Efraimidis and Spirakis, thanks to https://gist.github.com/O-I/3e0654509dd8057b539a
+      queues.sort_by { |(_name, priority)| -(rand ** (1.0 / priority)) }.map(&:first)
     end
 
-    def reserve_job(job)
-      updated_count = Models::Job.where(id: job.id, reserved_by: nil).update(reserved_by: worker_id)
-      updated_count == 1 ? job : false
+    def enqueue_any_ripe_jobs
+      ripe_scheduled_jobs = $redis.zrange "scheduled", 0, Time.now.to_i, byscore: true
+      $redis.multi do |transaction|
+        ripe_scheduled_jobs.each do |job_hash|
+          Gator::Models::Job.save(JSON(job_hash), connection: transaction)
+        end
+        transaction.zpopmin "scheduled", ripe_scheduled_jobs.count
+      end
+
+      ripe_retry_jobs = $redis.zrange "retry", 0, Time.now.to_i, byscore: true
+      $redis.multi do |transaction|
+        ripe_retry_jobs.each do |job_hash|
+          Gator::Models::Job.save(JSON(job_hash), connection: transaction)
+        end
+        transaction.zpopmin "retry", ripe_retry_jobs.count
+      end
     end
 
     def setup_signal_handlers
